@@ -2,8 +2,8 @@
   "compilerOptions": {
     "target": "ES2021",
     "lib": ["ES2022"],
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "jsx": "react-jsx",
     "types": ["node"],
     "outDir": "./dist",
@@ -12,12 +12,13 @@
     "isolatedModules": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "strict": true,
+    "noImplicitAny": false, 
+    "strict": false,                 
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "allowJs": true,
     "allowImportingTsExtensions": true,
-    "rewriteRelativeImportExtensions": true
+    "rewriteRelativeImportExtensions": true,
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "evals"]

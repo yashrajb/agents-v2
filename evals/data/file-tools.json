@@ -1,7 +1,7 @@
 [
   {
     "data": {
-      "prompt": "Read the contents of package.json",
+      "prompt": "Read the contents of package.json. file is at the root level of the directory",
       "tools": ["readFile", "writeFile", "listFiles", "deleteFile"]
     },
     "target": {

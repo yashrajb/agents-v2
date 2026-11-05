@@ -1,7 +1,7 @@
 import { generateText, stepCountIs, tool, type ToolSet } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
-
+import type { ModelMessage } from "ai";
 import type {
   EvalData,
   SingleTurnResult,
@@ -9,7 +9,8 @@ import type {
   MultiTurnResult,
 } from "./types.ts";
 import { buildMessages, buildMockedTools } from "./utils.ts";
-
+import { SYSTEM_PROMPT } from "../dist/agent/system/prompt";
+import { openaiCompatible } from "./evaluators.ts";
 /**
  * Tool definitions for mocked single-turn evaluations.
  * These define the schema the LLM sees without real implementations.
@@ -75,7 +76,7 @@ export async function singleTurnWithMocks(
   }
 
   const result = await generateText({
-    model: openai(data.config?.model ?? "gpt-4o-mini"),
+    model: openaiCompatible(data.config?.model ?? "gpt-4o-mini"),
     messages,
     tools,
     stopWhen: stepCountIs(1),
@@ -101,3 +102,58 @@ export async function singleTurnWithMocks(
  * Multi-turn executor with mocked tools.
  * Runs a complete agent loop with tools returning fixed values.
  */
+
+export const multiTurnWithMocks = async (data: MultiTurnEvalData) => {
+  const tools = buildMockedTools(data.mockTools);
+
+  const messages: ModelMessage[] = data.messages ?? [
+    {
+      role: 'system',
+      content: SYSTEM_PROMPT
+    },
+    {
+      role: 'user',
+      content: data.prompt!
+    }
+  ]
+
+  const result = await generateText({
+    model:openaiCompatible('gpt-5-mini'),
+    messages,
+    tools,
+    stopWhen: stepCountIs(data.config?.maxSteps ?? 20)
+  })
+
+  const allToolCalls: string[] = [];
+  const steps = result.steps.map((step) => {
+    const stepToolCalls = (step.toolCalls ?? []).map((tc) => {
+      allToolCalls.push(tc.toolName);
+      return {
+        toolName: tc.toolName,
+        args: "args" in tc ? tc.args : {},
+      };
+    })
+
+    const stepToolResults = (step.toolResults ?? []).map((tr) => ({
+      toolName: tr.toolName,
+      result: "result" in tr ? tr.result : tr,
+    }));
+
+    return {
+      toolCalls: stepToolCalls.length > 0 ? stepToolCalls : undefined,
+      toolResults: stepToolResults.length > 0 ? stepToolResults : undefined,
+      text: step.text || undefined,
+    };
+
+  })
+
+  const toolsUsed = [...new Set(allToolCalls)];
+
+  return {
+    text: result.text,
+    steps,
+    toolsUsed,
+    toolCallOrder: allToolCalls,
+  };
+
+}

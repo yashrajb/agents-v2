@@ -6,8 +6,18 @@ import { executeTool } from "./executeTool.ts";
 import { SYSTEM_PROMPT } from "./system/prompt.ts";
 import { Laminar } from "@lmnr-ai/lmnr";
 import type { AgentCallbacks, ToolCallInfo } from "../types.ts";
-
+import { createOpenAI } from "@ai-sdk/openai";
 import { filterCompatibleMessages } from "./system/filterMessages.ts";
+import { openaiCompatible } from "./openaicompatible.ts";
+import {
+  estimateMessagesTokens,
+  getModelLimits,
+  isOverThreshold,
+  calculateUsagePercentage,
+  compactConversation,
+  DEFAULT_THRESHOLD,
+} from "./context/index.ts";
+
 
 Laminar.initialize({
   projectApiKey: process.env.LMNR_API_KEY,
@@ -15,13 +25,26 @@ Laminar.initialize({
 
 const MODEL_NAME = "gpt-5-mini";
 
+
 export async function runAgent(
   userMessage: string,
   conversationHistory: ModelMessage[],
   callbacks: AgentCallbacks,
 ): Promise<ModelMessage[]> {
   // Filter and check if we need to compact the conversation history before starting
-  const workingHistory = filterCompatibleMessages(conversationHistory);
+  
+  const modelLimits = getModelLimits(MODEL_NAME);
+  let workingHistory = filterCompatibleMessages(conversationHistory);
+  const preCheckTokens = estimateMessagesTokens([
+    { role: "system", content: SYSTEM_PROMPT },
+    ...workingHistory,
+    { role: "user", content: userMessage },
+  ]);
+  
+  if (isOverThreshold(preCheckTokens.total, modelLimits.contextWindow)) {
+  // Compact the conversation
+  workingHistory = await compactConversation(workingHistory, MODEL_NAME);
+}
 
   const messages: ModelMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -33,7 +56,7 @@ export async function runAgent(
 
   while (true) {
     const result = streamText({
-      model: openai(MODEL_NAME),
+      model: openaiCompatible(MODEL_NAME),
       messages,
       tools,
       experimental_telemetry: {
@@ -45,6 +68,25 @@ export async function runAgent(
     const toolCalls: ToolCallInfo[] = [];
     let currentText = "";
     let streamError: Error | null = null;
+
+
+      const reportTokenUsage = () => {
+  if (callbacks.onTokenUsage) {
+    const usage = estimateMessagesTokens(messages);
+    callbacks.onTokenUsage({
+      inputTokens: usage.input,
+      outputTokens: usage.output,
+      totalTokens: usage.total,
+      contextWindow: modelLimits.contextWindow,
+      threshold: DEFAULT_THRESHOLD,
+      percentage: calculateUsagePercentage(
+        usage.total,
+        modelLimits.contextWindow,
+      ),
+    });
+  }
+};
+
 
     try {
       for await (const chunk of result.fullStream) {
@@ -91,7 +133,7 @@ export async function runAgent(
     if (finishReason !== "tool-calls" || toolCalls.length === 0) {
       const responseMessages = await result.response;
       messages.push(...responseMessages.messages);
-
+      reportTokenUsage();
       break;
     }
 
@@ -113,6 +155,7 @@ export async function runAgent(
           },
         ],
       });
+      reportTokenUsage();
     }
   }
 

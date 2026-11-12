@@ -118,7 +118,7 @@ export const multiTurnWithMocks = async (data: MultiTurnEvalData) => {
   ]
 
   const result = await generateText({
-    model:openaiCompatible('gpt-5-mini'),
+    model:openaiCompatible('gpt-5-latest'),
     messages,
     tools,
     stopWhen: stepCountIs(data.config?.maxSteps ?? 20)

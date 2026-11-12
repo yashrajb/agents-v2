@@ -1,3 +1,9 @@
+import dns from "node:dns";
+import net from "node:net";
+
+dns.setDefaultResultOrder("ipv4first");
+net.setDefaultAutoSelectFamily(false);
+
 import { streamText, type ModelMessage } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { getTracer } from "@lmnr-ai/lmnr";
@@ -17,13 +23,14 @@ import {
   compactConversation,
   DEFAULT_THRESHOLD,
 } from "./context/index.ts";
+import { fa } from "zod/locales";
 
 
 Laminar.initialize({
   projectApiKey: process.env.LMNR_API_KEY,
 });
 
-const MODEL_NAME = "gpt-5-mini";
+const MODEL_NAME = "openai/gpt-mini-latest";
 
 
 export async function runAgent(
@@ -32,7 +39,7 @@ export async function runAgent(
   callbacks: AgentCallbacks,
 ): Promise<ModelMessage[]> {
   // Filter and check if we need to compact the conversation history before starting
-  
+  console.log(1)
   const modelLimits = getModelLimits(MODEL_NAME);
   let workingHistory = filterCompatibleMessages(conversationHistory);
   const preCheckTokens = estimateMessagesTokens([
@@ -40,24 +47,26 @@ export async function runAgent(
     ...workingHistory,
     { role: "user", content: userMessage },
   ]);
-  
+  console.log(2)
   if (isOverThreshold(preCheckTokens.total, modelLimits.contextWindow)) {
   // Compact the conversation
   workingHistory = await compactConversation(workingHistory, MODEL_NAME);
 }
-
+console.log(3)
   const messages: ModelMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...workingHistory,
     { role: "user", content: userMessage },
   ];
-
+console.log(4)
   let fullResponse = "";
 
   while (true) {
+    console.log(5)
     const result = streamText({
-      model: openaiCompatible(MODEL_NAME),
+      model: openaiCompatible.chat(MODEL_NAME),
       messages,
+      maxRetries:0,
       tools,
       experimental_telemetry: {
         isEnabled: true,
@@ -139,8 +148,16 @@ export async function runAgent(
 
     const responseMessages = await result.response;
     messages.push(...responseMessages.messages);
-
+    let rejected = false;
     for (const tc of toolCalls) {
+
+      const approved = await callbacks.onToolApproval(tc.toolName, tc.args);
+
+      if(!approved){
+        rejected = true;
+        break;
+      }
+
       const result = await executeTool(tc.toolName, tc.args);
       callbacks.onToolCallEnd(tc.toolName, result);
 
@@ -157,6 +174,11 @@ export async function runAgent(
       });
       reportTokenUsage();
     }
+
+    if(rejected){
+      break;
+    }
+
   }
 
   callbacks.onComplete(fullResponse);
